@@ -21,6 +21,13 @@ from typing import Optional
 
 ROOT = Path(__file__).resolve().parent.parent
 
+# Windows 콘솔(cp949)에서도 한글·유니코드 기호(—, 스피너 등)를 출력할 수 있도록 utf-8 강제.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8")
+    except (AttributeError, ValueError):
+        pass
+
 
 @contextlib.contextmanager
 def progress_indicator(label: str):
@@ -108,7 +115,8 @@ class StepExecutor:
 
     def _run_git(self, *args) -> subprocess.CompletedProcess:
         cmd = ["git"] + list(args)
-        return subprocess.run(cmd, cwd=self._root, capture_output=True, text=True)
+        return subprocess.run(cmd, cwd=self._root, capture_output=True, text=True,
+                              encoding="utf-8", errors="replace")
 
     def _checkout_branch(self):
         branch = f"feat-{self._phase_name}"
@@ -242,6 +250,7 @@ class StepExecutor:
             ["codex", "exec", "--dangerously-bypass-approvals-and-sandbox", "--json", "-"],
             input=prompt,
             cwd=self._root, capture_output=True, text=True, timeout=1800,
+            encoding="utf-8", errors="replace",
         )
 
         if result.returncode != 0:
@@ -284,7 +293,8 @@ class StepExecutor:
             if h.get("type") == "command" and h.get("command")
         ]
         for cmd in commands:
-            r = subprocess.run(cmd, shell=True, cwd=self._root, capture_output=True, text=True)
+            r = subprocess.run(cmd, shell=True, cwd=self._root, capture_output=True, text=True,
+                               encoding="utf-8", errors="replace")
             if r.returncode != 0:
                 return False, (r.stdout + r.stderr).strip()
         return True, ""
