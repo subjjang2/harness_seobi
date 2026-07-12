@@ -10,6 +10,7 @@ import argparse
 import contextlib
 import json
 import os
+import shutil
 import subprocess
 import sys
 import threading
@@ -292,16 +293,23 @@ class StepExecutor:
             cfg = self._read_json(settings)
         except (json.JSONDecodeError, OSError):
             return True, ""
-        # 명령 출처는 사용자 입력이 아니라 레포 자체 설정(신뢰됨)이므로 shell=True 사용 (커맨드에 && 포함).
         commands = [
             h["command"]
             for group in cfg.get("hooks", {}).get("Stop", [])
             for h in group.get("hooks", [])
             if h.get("type") == "command" and h.get("command")
         ]
+        # Stop 훅 명령은 POSIX sh 문법([ -f ], &&, 2>&1)으로 작성되며 Claude Code도 sh로 실행한다.
+        # Windows의 cmd.exe는 이 문법을 못 파싱하므로, bash가 있으면 bash로 실행해 동작을 일치시킨다.
+        # 명령 출처는 사용자 입력이 아니라 레포 자체 설정(신뢰됨)이다.
+        bash = shutil.which("bash")
         for cmd in commands:
-            r = subprocess.run(cmd, shell=True, cwd=self._root, capture_output=True, text=True,
-                               encoding="utf-8", errors="replace")
+            if bash:
+                r = subprocess.run([bash, "-c", cmd], cwd=self._root, capture_output=True, text=True,
+                                   encoding="utf-8", errors="replace")
+            else:
+                r = subprocess.run(cmd, shell=True, cwd=self._root, capture_output=True, text=True,
+                                   encoding="utf-8", errors="replace")
             if r.returncode != 0:
                 return False, (r.stdout + r.stderr).strip()
         return True, ""
