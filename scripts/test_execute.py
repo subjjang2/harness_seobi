@@ -435,7 +435,8 @@ class TestInvokeCodex:
         cmd = mock_run.call_args[0][0]
         assert cmd[0] == "codex"
         assert cmd[1] == "exec"
-        assert "--dangerously-bypass-approvals-and-sandbox" in cmd
+        assert "workspace-write" in cmd  # 샌드박스로 워크스페이스 밖 쓰기 차단
+        assert "sandbox_workspace_write.network_access=true" in cmd  # 네트워크는 허용
         assert cmd[-1] == "-"  # 프롬프트는 stdin으로 전달
         # 프롬프트는 argv가 아니라 stdin(input)으로 전달된다
         stdin = mock_run.call_args[1]["input"]

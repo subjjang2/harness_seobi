@@ -244,10 +244,17 @@ class StepExecutor:
 
         prompt = preamble + step_file.read_text(encoding="utf-8")
         # codex exec = 비대화형(headless) 모드. 프롬프트는 argv 길이 한계를 피하려 stdin('-')으로 전달.
-        # --dangerously-bypass-approvals-and-sandbox: 파일 편집·git·테스트를 무인 수행 (claude --dangerously-skip-permissions 등가)
+        # -s workspace-write: 모든 쓰기를 워크스페이스로 가둬 repo 밖 시스템을 보호 (안전축 복원).
+        #   network_access=true 로 네트워크는 허용 → step 중 npm install 등 정상 동작.
+        #   워크스페이스 밖 escalation은 exec 비대화형에서 자동 거부(fail-safe).
+        #   빌드 중 워크스페이스 밖 접근이 꼭 필요한 프로젝트라면 이 두 인자를
+        #   ["--dangerously-bypass-approvals-and-sandbox"] 로 바꾸면 전권 실행된다.
         # --json: JSONL 이벤트 (저장만 하고 파싱하지 않음)
         result = subprocess.run(
-            ["codex", "exec", "--dangerously-bypass-approvals-and-sandbox", "--json", "-"],
+            ["codex", "exec",
+             "-s", "workspace-write",
+             "-c", "sandbox_workspace_write.network_access=true",
+             "--json", "-"],
             input=prompt,
             cwd=self._root, capture_output=True, text=True, timeout=1800,
             encoding="utf-8", errors="replace",

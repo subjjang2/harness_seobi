@@ -146,7 +146,7 @@ python3 scripts/execute.py {task-name} --push  # 실행 후 push
 - 2단계 커밋 — 코드 변경(`feat`)과 메타데이터(`chore`)를 분리 커밋
 - 타임스탬프 — started_at, completed_at, failed_at, blocked_at 자동 기록
 
-> ⚠️ 안전 주의: codex는 `--dangerously-bypass-approvals-and-sandbox`로 실행되어 Claude Code의 PreToolUse 훅(위험명령 차단)은 발동하지 않는다. 명령 차단이 필요하면 execute.py의 codex argv를 `-s workspace-write`로 바꿔 codex 자체 샌드박스로 워크스페이스 밖 쓰기·네트워크를 제한할 수 있다.
+> 🔒 안전: codex는 `-s workspace-write`(+ 네트워크 허용)로 실행된다. 모든 쓰기가 repo 워크스페이스로 제한되어 repo 밖 시스템은 보호되고, 네트워크는 열려 있어 `npm install` 등은 정상 동작한다. Claude Code의 PreToolUse 훅(위험명령 차단)은 codex에서 발동하지 않지만, 워크스페이스 격리 + feat 브랜치 격리 + step마다 커밋으로 피해를 복구 가능하게 막는다. 빌드 중 워크스페이스 밖 접근이 꼭 필요하면 execute.py의 codex argv를 `--dangerously-bypass-approvals-and-sandbox`(전권)로 바꾼다.
 
 에러 복구:
 
