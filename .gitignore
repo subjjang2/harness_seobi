@@ -7,3 +7,12 @@ tsconfig.tsbuildinfo
 # phase execution outputs
 phases/**/phase*-output.json
 phases/**/step*-output.json
+
+# python
+__pycache__/
+*.pyc
+
+# local session artifacts
+.claude/audit.jsonl
+.claude/settings.local.json
+image.png

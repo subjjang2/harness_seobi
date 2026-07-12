@@ -136,14 +136,17 @@ python3 scripts/execute.py {task-name}        # 순차 실행
 python3 scripts/execute.py {task-name} --push  # 실행 후 push
 ```
 
-execute.py가 자동으로 처리하는 것:
+각 step은 `codex exec`(비대화형)로 실행된다. execute.py가 자동으로 처리하는 것:
 
 - `feat-{task-name}` 브랜치 생성/checkout
-- 가드레일 주입 — CLAUDE.md + docs/*.md 내용을 매 step 프롬프트에 포함
+- 가드레일 주입 — CLAUDE.md + docs/*.md 내용을 매 step 프롬프트에 포함 (codex는 stdin으로 프롬프트 수신)
 - 컨텍스트 누적 — 완료된 step의 summary를 다음 step 프롬프트에 전달
 - 자가 교정 — 실패 시 최대 3회 재시도하며, 이전 에러 메시지를 프롬프트에 피드백
+- 검증 게이트 — step 완료 후 `.claude/settings.json`의 Stop 훅 명령(lint·build·test)을 실행. codex는 Claude Code 훅을 발동시키지 않으므로 execute.py가 대신 게이트를 건다. 검증 실패 시 완료로 인정하지 않고 재시도한다.
 - 2단계 커밋 — 코드 변경(`feat`)과 메타데이터(`chore`)를 분리 커밋
 - 타임스탬프 — started_at, completed_at, failed_at, blocked_at 자동 기록
+
+> ⚠️ 안전 주의: codex는 `--dangerously-bypass-approvals-and-sandbox`로 실행되어 Claude Code의 PreToolUse 훅(위험명령 차단)은 발동하지 않는다. 명령 차단이 필요하면 execute.py의 codex argv를 `-s workspace-write`로 바꿔 codex 자체 샌드박스로 워크스페이스 밖 쓰기·네트워크를 제한할 수 있다.
 
 에러 복구:
 

@@ -178,11 +178,11 @@ class StepExecutor:
         sections = []
         claude_md = ROOT / "CLAUDE.md"
         if claude_md.exists():
-            sections.append(f"## 프로젝트 규칙 (CLAUDE.md)\n\n{claude_md.read_text()}")
+            sections.append(f"## 프로젝트 규칙 (CLAUDE.md)\n\n{claude_md.read_text(encoding='utf-8')}")
         docs_dir = ROOT / "docs"
         if docs_dir.is_dir():
             for doc in sorted(docs_dir.glob("*.md")):
-                sections.append(f"## {doc.stem}\n\n{doc.read_text()}")
+                sections.append(f"## {doc.stem}\n\n{doc.read_text(encoding='utf-8')}")
         return "\n\n---\n\n".join(sections) if sections else ""
 
     @staticmethod
@@ -224,9 +224,9 @@ class StepExecutor:
             f"   {commit_example}\n\n---\n\n"
         )
 
-    # --- Claude 호출 ---
+    # --- codex 호출 ---
 
-    def _invoke_claude(self, step: dict, preamble: str) -> dict:
+    def _invoke_codex(self, step: dict, preamble: str) -> dict:
         step_num, step_name = step["step"], step["name"]
         step_file = self._phase_dir / f"step{step_num}.md"
 
@@ -234,14 +234,18 @@ class StepExecutor:
             print(f"  ERROR: {step_file} not found")
             sys.exit(1)
 
-        prompt = preamble + step_file.read_text()
+        prompt = preamble + step_file.read_text(encoding="utf-8")
+        # codex exec = 비대화형(headless) 모드. 프롬프트는 argv 길이 한계를 피하려 stdin('-')으로 전달.
+        # --dangerously-bypass-approvals-and-sandbox: 파일 편집·git·테스트를 무인 수행 (claude --dangerously-skip-permissions 등가)
+        # --json: JSONL 이벤트 (저장만 하고 파싱하지 않음)
         result = subprocess.run(
-            ["claude", "-p", "--dangerously-skip-permissions", "--output-format", "json", prompt],
+            ["codex", "exec", "--dangerously-bypass-approvals-and-sandbox", "--json", "-"],
+            input=prompt,
             cwd=self._root, capture_output=True, text=True, timeout=1800,
         )
 
         if result.returncode != 0:
-            print(f"\n  WARN: Claude가 비정상 종료됨 (code {result.returncode})")
+            print(f"\n  WARN: codex가 비정상 종료됨 (code {result.returncode})")
             if result.stderr:
                 print(f"  stderr: {result.stderr[:500]}")
 
@@ -251,10 +255,39 @@ class StepExecutor:
             "stdout": result.stdout, "stderr": result.stderr,
         }
         out_path = self._phase_dir / f"step{step_num}-output.json"
-        with open(out_path, "w") as f:
+        with open(out_path, "w", encoding="utf-8") as f:
             json.dump(output, f, indent=2, ensure_ascii=False)
 
         return output
+
+    # --- 검증 게이트 ---
+
+    def _run_verification(self) -> tuple:
+        """Stop 훅(.claude/settings.json)에 정의된 검증 커맨드(lint/build/test)를 실행한다.
+
+        codex 세션은 Claude Code 훅을 발동시키지 않으므로, execute.py가 대신 게이트를 건다.
+        settings.json이나 Stop 훅이 없으면 no-op으로 통과시킨다.
+        반환: (통과 여부, 실패 시 출력).
+        """
+        settings = ROOT / ".claude" / "settings.json"
+        if not settings.exists():
+            return True, ""
+        try:
+            cfg = self._read_json(settings)
+        except (json.JSONDecodeError, OSError):
+            return True, ""
+        # 명령 출처는 사용자 입력이 아니라 레포 자체 설정(신뢰됨)이므로 shell=True 사용 (커맨드에 && 포함).
+        commands = [
+            h["command"]
+            for group in cfg.get("hooks", {}).get("Stop", [])
+            for h in group.get("hooks", [])
+            if h.get("type") == "command" and h.get("command")
+        ]
+        for cmd in commands:
+            r = subprocess.run(cmd, shell=True, cwd=self._root, capture_output=True, text=True)
+            if r.returncode != 0:
+                return False, (r.stdout + r.stderr).strip()
+        return True, ""
 
     # --- 헤더 & 검증 ---
 
@@ -306,21 +339,27 @@ class StepExecutor:
                 tag += f" [retry {attempt}/{self.MAX_RETRIES}]"
 
             with progress_indicator(tag) as pi:
-                self._invoke_claude(step, preamble)
+                self._invoke_codex(step, preamble)
                 elapsed = int(pi.elapsed)
 
             index = self._read_json(self._index_file)
             status = next((s.get("status", "pending") for s in index["steps"] if s["step"] == step_num), "pending")
             ts = self._stamp()
 
+            verify_err = None
             if status == "completed":
-                for s in index["steps"]:
-                    if s["step"] == step_num:
-                        s["completed_at"] = ts
-                self._write_json(self._index_file, index)
-                self._commit_step(step_num, step_name)
-                print(f"  ✓ Step {step_num}: {step_name} [{elapsed}s]")
-                return True
+                ok, verify_out = self._run_verification()
+                if ok:
+                    for s in index["steps"]:
+                        if s["step"] == step_num:
+                            s["completed_at"] = ts
+                    self._write_json(self._index_file, index)
+                    self._commit_step(step_num, step_name)
+                    print(f"  ✓ Step {step_num}: {step_name} [{elapsed}s]")
+                    return True
+                # 검증(lint/build/test) 실패 → 완료로 인정하지 않고 재시도 경로로 전환
+                verify_err = f"검증 실패 (lint/build/test):\n{verify_out[:1500]}"
+                print(f"  ✗ Step {step_num}: 검증 실패 — 재시도 대상")
 
             if status == "blocked":
                 for s in index["steps"]:
@@ -333,7 +372,7 @@ class StepExecutor:
                 self._update_top_index("blocked")
                 sys.exit(2)
 
-            err_msg = next(
+            err_msg = verify_err or next(
                 (s.get("error_message", "Step did not update status") for s in index["steps"] if s["step"] == step_num),
                 "Step did not update status",
             )
