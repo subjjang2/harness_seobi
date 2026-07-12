@@ -80,11 +80,29 @@ repo 내부 파괴(`rm -rf`, `reset --hard`)는 샌드박스로 못 막지만, *
 
 ---
 
+## 검증 게이트 & Stop 훅
+
+검증 명령은 `.claude/settings.json`의 `Stop` 훅 하나로 관리한다. 두 곳에서 이 명령을 사용한다:
+- **Claude Code 세션 종료 시** — Claude Code가 sh로 실행 (대화형 개발 중 검증)
+- **codex step 완료 시** — `execute.py`의 검증 게이트가 **bash로 실행** (codex는 Claude Code 훅을 발동시키지 않으므로 execute.py가 대신 건다)
+
+기본 명령:
+```
+[ -f package.json ] || exit 0; npm run lint 2>&1 && npm run build 2>&1 && npm run test 2>&1
+```
+
+- **`[ -f package.json ] || exit 0` 가드**: package.json이 없는 상태(빈 템플릿 등)에선 검증을 조용히 통과(no-op)시켜, npm 에러 노이즈를 없앤다. 실제 프로젝트가 되면 그대로 lint/build/test를 검증한다.
+- 명령은 POSIX sh 문법이므로 `execute.py`는 이를 **bash로 실행**한다 (Windows `cmd.exe`가 `[ -f ]`·`;`를 못 파싱하는 문제 회피, bash 없으면 shell fallback).
+- 다른 스택이면 이 명령만 프로젝트에 맞게 바꾸면 된다 (예: `pytest`, `cargo test`).
+
+---
+
 ## 요구 사항
 - Python 3.9+
 - [codex CLI](https://github.com/openai/codex) (로그인 완료)
 - git
-- (검증 게이트용) `.claude/settings.json` Stop 훅에 정의된 커맨드 — 기본은 `npm run lint/build/test`
+- bash (검증 게이트가 Stop 훅의 POSIX sh 명령을 실행하는 데 사용; Windows는 Git Bash)
+- (검증 게이트용) `.claude/settings.json` Stop 훅 명령 — 기본은 package.json 가드 + `npm run lint/build/test` (아래 [검증 게이트 & Stop 훅](#검증-게이트--stop-훅) 참고)
 
 ## 테스트
 ```bash
