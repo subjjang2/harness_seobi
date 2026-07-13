@@ -478,8 +478,9 @@ class TestCommitStep:
         assert len(commit_msgs) == 1
         assert "chore" in commit_msgs[0]
 
-    def test_resets_top_index_from_feat(self, executor):
-        # top index(phases/index.json)는 메타데이터라 feat 에서 제외(reset)되어야 한다.
+    def test_feat_unstages_all_phases(self, executor):
+        # F10c-r: phases/ 전체를 feat 에서 unstage 해 어떤 상태 파일도 코드 커밋에 섞이지 않게 한다.
+        # (codex 가 남긴 stray phases 파일까지 구조적으로 배제 — 개별 파일 reset 이 아니라 phases 일괄.)
         calls = []
         def fake_git(*args):
             calls.append(args)
@@ -491,7 +492,29 @@ class TestCommitStep:
         executor._commit_step(2, "ui")
 
         resets = [c[3] for c in calls if c[0] == "reset"]
-        assert "phases/index.json" in resets
+        assert "phases" in resets
+
+    def test_chore_stages_only_owned_indexes(self, executor):
+        # chore 는 harness 소유 두 index 만 명시 pathspec 으로 stage 한다(git add -A 스윕 금지).
+        # → codex 가 남긴 stray phases/** 파일이 커밋에 들어갈 경로가 없다(S1 봉합).
+        calls = []
+        def fake_git(*args):
+            calls.append(args)
+            if args[:2] == ("diff", "--cached"):
+                return MagicMock(returncode=1)
+            return MagicMock(returncode=0, stdout="", stderr="")
+        executor._run_git = fake_git
+
+        executor._commit_step(2, "ui")
+
+        adds = [c for c in calls if c[0] == "add"]
+        # feat 스테이징은 add -A 이지만 곧바로 reset phases 로 상태를 제거한다.
+        assert ("add", "-A") in adds
+        # chore 스테이징은 명시 pathspec: 정확히 두 index 파일만, -A 스윕 아님.
+        pathspec_adds = [c for c in adds if c[:2] == ("add", "--")]
+        assert len(pathspec_adds) == 1
+        staged = set(pathspec_adds[0][2:])
+        assert staged == {"phases/0-mvp/index.json", "phases/index.json"}
 
     def test_commit_failure_is_fatal(self, executor):
         # git commit 실패는 WARN 이 아니라 harness 실패(exit 1)로 처리된다.

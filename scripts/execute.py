@@ -389,17 +389,23 @@ class StepExecutor:
 
     def _commit_step(self, step_num: int, step_name: str):
         # 불변식: _preflight_clean_worktree() 로 시작 시점 워크트리가 clean(phases/ 제외)하고,
-        # 각 step 이 자기 산출물을 커밋하므로, 여기서 git add -A 로 잡히는 코드 변경은
-        # 이번 step 에서 codex 가 만든 것뿐이다(무관한 사용자 변경이 섞이지 않는다).
-        output_rel = f"phases/{self._phase_dir_name}/step{step_num}-output.json"
+        # 각 step 이 자기 산출물을 커밋하므로, 여기서 잡히는 코드 변경은 이번 step 에서 codex 가
+        # 만든 것뿐이다(무관한 사용자 변경이 섞이지 않는다).
+        #
+        # 상태 소유권(F10c-r): phases/ 는 harness 전용 상태 영역이다. codex 가 지시를 어기고
+        # phases/** 아래에 다른 phase 의 index 나 새 파일을 남겨도 git 이력에 들어가면 안 된다.
+        # 따라서 feat 는 phases 를 전부 unstage 해 코드만 담고, chore 는 harness 가 소유하는 두
+        # index 파일만 명시 pathspec 으로 stage 한다(과거 `git add -A` 스윕이 stray phases 파일을
+        # feat 에 섞던 구멍을 구조적으로 차단 — F10c-r 보강).
+        # (stepN-output.json·attempt jsonl 은 .gitignore 대상이라 커밋 대상이 아니다 — 명시 add 시
+        #  ignored 경로 에러가 나므로 포함하지 않는다.)
         index_rel = f"phases/{self._phase_dir_name}/index.json"
         top_index_rel = "phases/index.json"
 
+        # feat: 코드(비 phases)만 커밋. phases/ 는 전부 unstage 해 어떤 상태 파일도 섞이지 않게 한다.
         # git mutation 은 반환코드를 검사해 실패 시 fail-closed 로 중단한다(F10b — 커밋 경계 보장).
         self._git_or_fail(["add", "-A"], "코드 스테이징(git add) 실패")
-        # 메타데이터(phase index, top index, step output)는 feat 에서 제외해 chore 로 분류한다.
-        for meta in (output_rel, index_rel, top_index_rel):
-            self._git_or_fail(["reset", "HEAD", "--", meta], f"메타데이터 unstage(git reset {meta}) 실패")
+        self._git_or_fail(["reset", "HEAD", "--", "phases"], "phases unstage(git reset) 실패")
 
         if self._run_git("diff", "--cached", "--quiet").returncode != 0:
             msg = self.FEAT_MSG.format(phase=self._phase_name, num=step_num, name=step_name)
@@ -408,9 +414,10 @@ class StepExecutor:
                 self._fail_commit("코드(feat) 커밋 실패", r.stderr)
             print(f"  Commit: {msg}")
 
-        # 남은 메타데이터(phase index + top index + output)를 단일 chore 커밋으로 함께 기록한다.
-        # 호출자는 _commit_step 전에 두 index 를 모두 갱신해 두 파일이 같은 커밋에 담기도록 한다.
-        self._git_or_fail(["add", "-A"], "메타데이터 스테이징(git add) 실패")
+        # chore: harness 소유 상태(phase index + top index)만 명시 pathspec 으로 stage 해 단일
+        # 커밋으로 함께 기록한다. 호출자는 _commit_step 전에 두 index 를 모두 갱신해 둔다.
+        self._git_or_fail(["add", "--", index_rel, top_index_rel],
+                          "메타데이터 스테이징(git add) 실패")
         if self._run_git("diff", "--cached", "--quiet").returncode != 0:
             msg = self.CHORE_MSG.format(phase=self._phase_name, num=step_num)
             r = self._run_git("commit", "-m", msg)
