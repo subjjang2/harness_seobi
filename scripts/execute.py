@@ -292,6 +292,15 @@ class StepExecutor:
             except subprocess.TimeoutExpired:
                 out, err = "", ""
             raise subprocess.TimeoutExpired(cmd, timeout, output=out, stderr=err)
+        except BaseException:
+            # KeyboardInterrupt(Ctrl-C)·SystemExit 등 timeout 외 중단에서도 자식 트리를 먼저
+            # 종료한 뒤 예외를 전파한다(INT). 자식은 별도 프로세스 그룹/세션이라 방치하면 부모가
+            # 죽고 repo 락이 해제된 뒤에도 살아남아 저장소를 계속 수정할 수 있다 — 락이 막으려던
+            # 동시 writer 상황을 스스로 유발한다. 종료 후 짧게 드레인하고 원래 예외를 그대로 올린다.
+            self._kill_tree(proc)
+            with contextlib.suppress(Exception):
+                proc.communicate(timeout=10)
+            raise
 
     @staticmethod
     def _kill_tree(proc: subprocess.Popen):

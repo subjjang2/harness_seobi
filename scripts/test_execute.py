@@ -1534,3 +1534,18 @@ class TestRunTree:
         p = subprocess.Popen([sys.executable, "-c", "pass"])
         p.wait()
         ex.StepExecutor._kill_tree(p)  # 예외 없이 통과
+
+    def test_interrupt_kills_tree_before_propagating(self, executor):
+        # INT: KeyboardInterrupt(Ctrl-C) 등 timeout 외 중단에서도 자식 트리를 먼저 종료한 뒤
+        # 예외를 전파해야 한다. 방치하면 자식이 락 해제 후에도 저장소를 계속 수정할 수 있다.
+        # communicate() 첫 호출이 KeyboardInterrupt 를 올리고, 종료 후 드레인 호출은 정상 반환하게 한다.
+        with patch.object(executor, "_kill_tree") as spy, \
+             patch("subprocess.Popen") as mock_popen:
+            proc = MagicMock()
+            proc.communicate.side_effect = [KeyboardInterrupt, ("", "")]
+            mock_popen.return_value = proc
+            with pytest.raises(KeyboardInterrupt):
+                executor._run_tree([sys.executable, "-c", "pass"], timeout=30)
+            # 예외 전파 전에 트리 종료가 호출됐고, 이후 파이프 드레인까지 수행됐다.
+            spy.assert_called_once_with(proc)
+        assert proc.communicate.call_count == 2
