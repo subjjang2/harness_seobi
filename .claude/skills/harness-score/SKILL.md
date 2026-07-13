@@ -43,14 +43,14 @@ EOF
 python .claude/skills/harness-score/scripts/extract_codex_msg.py codex_raw.jsonl codex_review.md
 ```
 
-그런 다음 `codex_review.md`를 **Read 툴로** 읽는다(터미널 직접 print는 cp949에서 한글이 깨진다).
+extract 스크립트는 리뷰가 비었으면 **exit 1 + 경고**를 낸다. `codex_review.md`가 비었거나 `codex_err.log`에 에러가 있으면 **채점을 중단하고 사실대로 보고**한다 — 빈 리뷰로 점수를 지어내지 않는다(codex 미설치·쿼터소진·샌드박스 거부 등). 정상이면 `codex_review.md`를 **Read 툴로** 읽는다(터미널 직접 print는 cp949에서 한글이 깨진다).
 
 ### 3. 교차 검증
-codex의 지적을 그대로 믿지 말고, 최소 1건(특히 "확정 버그"류)을 실제 코드에서 Read로 확인해 CONFIRMED/PLAUSIBLE을 남긴다.
+codex의 지적을 그대로 믿지 말고 코드에서 Read로 확인한다. **모든 High finding은 반드시 교차검증**한다(총점을 가장 크게 깎으므로) — CONFIRMED 못 하고 PLAUSIBLE에 그친 High는 감점 반값(−10) 또는 보류. Medium/Low는 최소 1건 이상 표본 검증. 각 finding에 CONFIRMED/PLAUSIBLE을 남긴다.
 
 ### 4. 채점
-`references/rubric.md`의 축·가중치·감점 규칙으로 각 축 점수와 총점·등급을 계산한다.
-finding을 근본 원인 기준으로 축에 매핑하고, 심각도별 감점을 누적한다.
+`references/rubric.md`의 축·가중치·**고정 감점**(High −20 / Med −8 / Low −3, 무결성급 High만 −25) 규칙으로 각 축 점수와 총점·등급을 계산한다.
+finding을 근본 원인 기준으로 축에 매핑하고 감점을 누적한다(축 최저 30 clamp, 골격 완전 부재 축은 clamp 예외로 F 허용).
 
 ### 5. HTML 렌더
 `assets/scorecard_template.html`을 참고 디자인 셸로 삼아 스코어카드를 만든다(테크니컬 콘솔 톤, 라이트/다크,

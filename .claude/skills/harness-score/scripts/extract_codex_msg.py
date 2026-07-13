@@ -39,7 +39,9 @@ def extract(raw_path: str) -> str:
                         walk(v)
 
             walk(event)
-    return msgs[-1] if msgs else ""
+    # codex가 ack + 본문을 별도 completed item으로 흘리면 마지막이 본문이 아닐 수 있다.
+    # 리뷰 본문은 가장 긴 메시지라는 가정으로 최장 메시지를 고른다.
+    return max(msgs, key=len) if msgs else ""
 
 
 def main():
@@ -49,6 +51,14 @@ def main():
     text = extract(sys.argv[1])
     with open(sys.argv[2], "w", encoding="utf-8") as f:
         f.write(text)
+    if not text.strip():
+        # 빈 리뷰로 채점하는 사고를 막는다: 호출 측이 중단하도록 실패 코드를 낸다.
+        print(
+            f"ERROR: no assistant message extracted from {sys.argv[1]} "
+            "(codex 미설치·쿼터소진·샌드박스 거부 가능). 채점을 중단하고 codex_err.log를 확인하라.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
     print(f"extracted {len(text)} chars -> {sys.argv[2]}")
 
 
