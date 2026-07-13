@@ -1,0 +1,481 @@
+<title>Harness 코드리뷰 스코어카드</title>
+<style>
+  :root {
+    --ground: #f4f6f8;
+    --surface: #ffffff;
+    --surface-2: #fafbfc;
+    --border: #e2e6eb;
+    --border-strong: #cdd4dc;
+    --ink: #1b1f26;
+    --ink-2: #4a525d;
+    --ink-3: #7b838f;
+    --accent: #3b6fed;
+    --accent-soft: #e7edfd;
+    --good: #178a5f;
+    --good-soft: #e0f2ea;
+    --warn: #c07d17;
+    --warn-soft: #f7ecd6;
+    --crit: #cf3f3f;
+    --crit-soft: #f8e0e0;
+    --shadow: 0 1px 2px rgba(20,28,40,.04), 0 4px 16px rgba(20,28,40,.05);
+    --mono: ui-monospace, "Cascadia Code", "SF Mono", Consolas, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ground: #0d1016;
+      --surface: #161a21;
+      --surface-2: #1b2029;
+      --border: #262c36;
+      --border-strong: #333b47;
+      --ink: #e8ebef;
+      --ink-2: #a8b0bc;
+      --ink-3: #6d7683;
+      --accent: #6b93ff;
+      --accent-soft: #1b2740;
+      --good: #46c08a;
+      --good-soft: #14261e;
+      --warn: #e0a544;
+      --warn-soft: #2a2113;
+      --crit: #ef6a6a;
+      --crit-soft: #2c1717;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 4px 20px rgba(0,0,0,.35);
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #0d1016; --surface: #161a21; --surface-2: #1b2029;
+    --border: #262c36; --border-strong: #333b47; --ink: #e8ebef;
+    --ink-2: #a8b0bc; --ink-3: #6d7683; --accent: #6b93ff; --accent-soft: #1b2740;
+    --good: #46c08a; --good-soft: #14261e; --warn: #e0a544; --warn-soft: #2a2113;
+    --crit: #ef6a6a; --crit-soft: #2c1717;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 4px 20px rgba(0,0,0,.35);
+  }
+  :root[data-theme="light"] {
+    --ground: #f4f6f8; --surface: #ffffff; --surface-2: #fafbfc;
+    --border: #e2e6eb; --border-strong: #cdd4dc; --ink: #1b1f26;
+    --ink-2: #4a525d; --ink-3: #7b838f; --accent: #3b6fed; --accent-soft: #e7edfd;
+    --good: #178a5f; --good-soft: #e0f2ea; --warn: #c07d17; --warn-soft: #f7ecd6;
+    --crit: #cf3f3f; --crit-soft: #f8e0e0;
+    --shadow: 0 1px 2px rgba(20,28,40,.04), 0 4px 16px rgba(20,28,40,.05);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--ground); color: var(--ink);
+    font-family: var(--sans); line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 40px 24px 80px; }
+
+  /* header */
+  .eyebrow {
+    font-family: var(--mono); font-size: 12px; letter-spacing: .12em;
+    text-transform: uppercase; color: var(--ink-3); margin: 0 0 10px;
+  }
+  h1 {
+    font-size: clamp(26px, 4vw, 38px); line-height: 1.12; margin: 0 0 6px;
+    letter-spacing: -.02em; text-wrap: balance; font-weight: 680;
+  }
+  .sub { color: var(--ink-2); font-size: 15px; margin: 0 0 4px; max-width: 62ch; }
+  .meta-line {
+    font-family: var(--mono); font-size: 12px; color: var(--ink-3);
+    margin-top: 10px; display: flex; flex-wrap: wrap; gap: 6px 18px;
+  }
+
+  /* hero score */
+  .hero {
+    display: grid; grid-template-columns: auto 1fr; gap: 32px; align-items: center;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 16px;
+    padding: 28px 32px; box-shadow: var(--shadow); margin: 28px 0 20px;
+  }
+  @media (max-width: 620px) { .hero { grid-template-columns: 1fr; gap: 22px; text-align: center; } }
+  .gauge { position: relative; width: 168px; height: 168px; margin: 0 auto; }
+  .gauge svg { transform: rotate(-90deg); }
+  .gauge .val {
+    position: absolute; inset: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+  }
+  .gauge .num {
+    font-family: var(--mono); font-size: 46px; font-weight: 600;
+    letter-spacing: -.02em; line-height: 1; font-variant-numeric: tabular-nums;
+  }
+  .gauge .den { font-family: var(--mono); font-size: 13px; color: var(--ink-3); margin-top: 3px; }
+  .grade-row { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+  .grade {
+    font-family: var(--mono); font-size: 30px; font-weight: 640; color: var(--warn);
+    letter-spacing: -.01em;
+  }
+  .grade-label { font-size: 14px; color: var(--ink-2); font-weight: 600; }
+  .verdict { color: var(--ink-2); font-size: 15px; margin: 12px 0 0; max-width: 54ch; }
+  .sev-tally { display: flex; gap: 10px; margin-top: 18px; flex-wrap: wrap; }
+  .tally {
+    display: inline-flex; align-items: center; gap: 8px; font-size: 13px;
+    padding: 6px 12px; border-radius: 999px; border: 1px solid var(--border);
+    background: var(--surface-2); font-weight: 600;
+  }
+  .tally b { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; }
+  .d-crit { background: var(--crit); } .d-warn { background: var(--warn); } .d-good { background: var(--good); }
+
+  /* section titles */
+  .sec-h {
+    display: flex; align-items: center; gap: 12px; margin: 40px 0 16px;
+  }
+  .sec-h h2 { font-size: 17px; margin: 0; font-weight: 640; letter-spacing: -.01em; }
+  .sec-h .rule { flex: 1; height: 1px; background: var(--border); }
+  .sec-h .cnt { font-family: var(--mono); font-size: 12px; color: var(--ink-3); }
+
+  /* axis meters */
+  .axes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+  @media (max-width: 720px) { .axes { grid-template-columns: 1fr; } }
+  .axis {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+    padding: 16px 18px; box-shadow: var(--shadow);
+  }
+  .axis .top { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px; }
+  .axis .name { font-weight: 640; font-size: 14.5px; }
+  .axis .en { font-family: var(--mono); font-size: 10.5px; color: var(--ink-3); text-transform: uppercase; letter-spacing: .06em; }
+  .axis .score { font-family: var(--mono); font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .bar { height: 6px; border-radius: 999px; background: var(--border); overflow: hidden; margin: 8px 0 10px; }
+  .bar > span { display: block; height: 100%; border-radius: 999px; }
+  .axis .note { font-size: 12.5px; color: var(--ink-2); margin: 0; }
+
+  /* findings */
+  .finding {
+    background: var(--surface); border: 1px solid var(--border); border-left-width: 4px;
+    border-radius: 10px; padding: 16px 18px 15px; margin-bottom: 12px; box-shadow: var(--shadow);
+  }
+  .finding.crit { border-left-color: var(--crit); }
+  .finding.warn { border-left-color: var(--warn); }
+  .finding.good { border-left-color: var(--good); }
+  .f-head { display: flex; align-items: flex-start; gap: 12px; }
+  .f-num {
+    font-family: var(--mono); font-size: 12px; font-weight: 600; color: var(--ink-3);
+    background: var(--surface-2); border: 1px solid var(--border); border-radius: 6px;
+    padding: 3px 7px; flex-shrink: 0; margin-top: 1px;
+  }
+  .f-title { font-weight: 620; font-size: 15px; margin: 0; flex: 1; letter-spacing: -.005em; }
+  .pill {
+    font-family: var(--mono); font-size: 10px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .06em; padding: 3px 8px; border-radius: 5px; flex-shrink: 0; margin-top: 1px;
+  }
+  .pill.crit { background: var(--crit-soft); color: var(--crit); }
+  .pill.warn { background: var(--warn-soft); color: var(--warn); }
+  .pill.good { background: var(--good-soft); color: var(--good); }
+  .pill.done { background: var(--good-soft); color: var(--good); }
+  .finding.resolved { opacity: .68; border-left-color: var(--good); }
+  .finding.resolved .f-title { text-decoration: line-through; text-decoration-color: var(--ink-3); text-decoration-thickness: 1px; }
+  .resolved-tag {
+    display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono);
+    font-size: 10.5px; font-weight: 700; color: var(--good); text-transform: uppercase;
+    letter-spacing: .05em; margin-top: 9px;
+  }
+  .resolved-tag::before { content: "✓"; font-weight: 900; }
+  .delta { font-family: var(--mono); font-size: 11px; color: var(--good); font-weight: 600; margin-left: 6px; }
+  .f-body { margin: 10px 0 0 0; font-size: 13.5px; color: var(--ink-2); }
+  .f-body p { margin: 0 0 8px; }
+  .f-fix {
+    background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px;
+    padding: 9px 12px; font-size: 13px; color: var(--ink); margin-top: 8px;
+  }
+  .f-fix b { color: var(--accent); font-weight: 640; }
+  .refs { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .ref {
+    font-family: var(--mono); font-size: 11px; color: var(--ink-2);
+    background: var(--surface-2); border: 1px solid var(--border);
+    border-radius: 5px; padding: 2px 7px;
+  }
+  .confirmed {
+    display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono);
+    font-size: 10.5px; font-weight: 700; color: var(--crit); text-transform: uppercase;
+    letter-spacing: .05em; margin-top: 9px;
+  }
+  .confirmed::before { content: "✓"; font-weight: 900; }
+
+  /* priority footer */
+  .priority {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
+    padding: 22px 26px; margin-top: 36px; box-shadow: var(--shadow);
+  }
+  .priority h3 { margin: 0 0 14px; font-size: 15px; font-weight: 640; }
+  .flow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; }
+  .flow .stepx {
+    font-family: var(--mono); font-size: 12.5px; padding: 7px 12px; border-radius: 8px;
+    background: var(--accent-soft); color: var(--accent); font-weight: 600; border: 1px solid transparent;
+  }
+  .flow .arrow { color: var(--ink-3); font-weight: 700; }
+  .foot {
+    margin-top: 30px; font-family: var(--mono); font-size: 11.5px; color: var(--ink-3);
+    text-align: center; line-height: 1.7;
+  }
+  a { color: var(--accent); }
+</style>
+
+<div class="wrap">
+  <p class="eyebrow">Harness Framework · 정적 코드리뷰</p>
+  <h1>Step 실행 하네스 스코어카드</h1>
+  <p class="sub"><code>scripts/execute.py</code> 중심 · codex exec 백엔드 하네스에 대한 종합 리뷰. 정상 경로는 견고하나 실패·재개·동시 실행 경로에서 상태/Git 이력 불일치 위험이 집중됩니다.</p>
+  <div class="meta-line">
+    <span>REVIEWER: codex-cli 0.144.1 (read-only)</span>
+    <span>SCOPE: execute.py · tests · .claude · docs</span>
+    <span>REVISED: 2026-07-13 · High 4 + Low 1 패치</span>
+  </div>
+
+  <!-- HERO -->
+  <div class="hero">
+    <div class="gauge">
+      <svg width="168" height="168" viewBox="0 0 168 168">
+        <circle cx="84" cy="84" r="72" fill="none" stroke="var(--border)" stroke-width="14"/>
+        <circle cx="84" cy="84" r="72" fill="none" stroke="var(--good)" stroke-width="14"
+                stroke-linecap="round" stroke-dasharray="452.4"
+                stroke-dashoffset="113.1"/>
+      </svg>
+      <div class="val">
+        <span class="num">75</span>
+        <span class="den">/ 100</span>
+      </div>
+    </div>
+    <div>
+      <div class="grade-row">
+        <span class="grade" style="color:var(--good)">B</span>
+        <span class="grade-label">High 4건 전부 해결 — 상태·커밋 무결성 확보</span>
+        <span class="delta">▲ +8 (C+ → B)</span>
+      </div>
+      <p class="verdict">상태 머신 명문화·커밋 소유권 단일화·원자적 index 동기화·검증 fail-closed 를 적용. 남은 것은 codex 백엔드 통합(Medium)과 계측·테스트(Low)로, 무결성 리스크는 해소되었습니다.</p>
+      <div class="sev-tally">
+        <span class="tally" style="color:var(--good)"><b>5</b> 패치 완료</span>
+        <span class="tally"><span class="dot d-crit"></span>High <b>0</b> <span style="color:var(--ink-3)">/ 4</span></span>
+        <span class="tally"><span class="dot d-warn"></span>Medium <b>8</b></span>
+        <span class="tally"><span class="dot d-good"></span>Low <b>2</b></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- AXES -->
+  <div class="sec-h">
+    <h2>6축 점수</h2><span class="rule"></span><span class="cnt">harness 자체 축 기준</span>
+  </div>
+  <div class="axes">
+    <div class="axis">
+      <div class="top"><div><div class="name">구조</div><div class="en">Structure</div></div><div class="score" style="color:var(--good)">92</div></div>
+      <div class="bar"><span style="width:92%;background:var(--good)"></span></div>
+      <p class="note">클론 즉시 골격 존재, 클래스화 + 71개 테스트로 확장. 최상위 강점.</p>
+    </div>
+    <div class="axis">
+      <div class="top"><div><div class="name">계획</div><div class="en">Planning</div></div><div class="score" style="color:var(--good)">85</div></div>
+      <div class="bar"><span style="width:85%;background:var(--good)"></span></div>
+      <p class="note"><code>harness.md</code> 워크플로우가 자기완결적 step 설계를 강제. 문서화 우수.</p>
+    </div>
+    <div class="axis">
+      <div class="top"><div><div class="name">맥락</div><div class="en">Context</div></div><div class="score" style="color:var(--warn)">70</div></div>
+      <div class="bar"><span style="width:70%;background:var(--warn)"></span></div>
+      <p class="note">매 step 전체 문서 중복 주입 + 자유형 summary 의존. 토큰 선형 증가. <span class="delta">미해결 · F14</span></p>
+    </div>
+    <div class="axis">
+      <div class="top"><div><div class="name">실행</div><div class="en">Execution</div></div><div class="score" style="color:var(--warn)">64 <span class="delta">▲4</span></div></div>
+      <div class="bar"><span style="width:64%;background:var(--warn)"></span></div>
+      <p class="note">elapsed 계측 수정됨. <code>--json</code> 미파싱·stateless 재시도·모델 라우팅은 미해결.</p>
+    </div>
+    <div class="axis">
+      <div class="top"><div><div class="name">검증</div><div class="en">Verification</div></div><div class="score" style="color:var(--warn)">72 <span class="delta">▲17</span></div></div>
+      <div class="bar"><span style="width:72%;background:var(--warn)"></span></div>
+      <p class="note">fail-closed 전환 + opt-out 완료. 검증 timeout·증분 실행은 미해결.</p>
+    </div>
+    <div class="axis">
+      <div class="top"><div><div class="name">안전·개선</div><div class="en">Safety</div></div><div class="score" style="color:var(--warn)">74 <span class="delta">▲24</span></div></div>
+      <div class="bar"><span style="width:74%;background:var(--warn)"></span></div>
+      <p class="note">상태 무결성·커밋 소유권·원자적 동기화 확보. 네트워크 기본값·락은 미해결.</p>
+    </div>
+  </div>
+
+  <!-- HIGH -->
+  <div class="sec-h">
+    <h2>High · 상태·이력 무결성</h2><span class="rule"></span><span class="cnt" style="color:var(--good)">4건 · 전부 해결 ✓</span>
+  </div>
+
+  <div class="finding crit resolved">
+    <div class="f-head">
+      <span class="f-num">01</span>
+      <p class="f-title">오류가 있어도 phase를 완료 처리할 수 있음</p>
+      <span class="pill done">High · 패치</span>
+    </div>
+    <div class="f-body">
+      <p><code>_check_blockers()</code>는 역순 검사 중 첫 non-pending에서 중단 → <code>completed,error,completed</code> 같은 비정상 배열에서 error를 놓침. 이후 pending이 없으면 <code>_finalize()</code>가 phase를 완료로 마킹.</p>
+      <div class="f-fix"><b>적용:</b> <code>_check_blockers</code> 정방향 전체 스캔으로 위치 무관 error/blocked 감지 + <code>_assert_all_completed()</code> 게이트로 전부 completed 일 때만 finalize.</div>
+      <div class="refs"><span class="ref">execute.py:361</span><span class="ref">:513</span><span class="ref">:535</span></div>
+      <div class="resolved-tag">패치 완료 · 회귀 테스트 3건 추가</div>
+    </div>
+  </div>
+
+  <div class="finding crit resolved">
+    <div class="f-head">
+      <span class="f-num">02</span>
+      <p class="f-title">커밋 분리가 깨지고 사용자 변경까지 자동 커밋</p>
+      <span class="pill done">High · 패치</span>
+    </div>
+    <div class="f-body">
+      <p><code>git add -A</code>가 저장소 전체 기존 변경까지 stage. 게다가 preamble이 codex에게 "직접 커밋하라"고 지시 → codex가 먼저 커밋하면 feat/chore 분리가 이미 붕괴.</p>
+      <div class="f-fix"><b>적용:</b> <code>_preflight_clean_worktree()</code> 로 phases/ 외 clean 강제 + preamble 규칙 6을 "커밋 금지"로 변경 + codex가 커밋 시 <code>_normalize_codex_commits()</code> soft-reset 정규화.</div>
+      <div class="refs"><span class="ref">execute.py:130</span><span class="ref">:155</span><span class="ref">:281</span></div>
+      <div class="resolved-tag">패치 완료 · 커밋 무결성 테스트 6건 추가</div>
+    </div>
+  </div>
+
+  <div class="finding crit resolved">
+    <div class="f-head">
+      <span class="f-num">03</span>
+      <p class="f-title">두 index(top·phase)가 원자적으로 동기화되지 않음</p>
+      <span class="pill done">High · 패치</span>
+    </div>
+    <div class="f-body">
+      <p>blocked 경로는 상태 파일을 아예 커밋 안 함. error 경로는 <code>_commit_step()</code> 이후 top index를 갱신 → top index의 error가 커밋에 미포함. 중간 종료 시 두 파일이 상이한 상태.</p>
+      <div class="f-fix"><b>적용:</b> error·blocked 모두 두 index 갱신 후 단일 chore 커밋(top index를 커밋 전에 갱신, feat에서 제외). 커밋 실패는 <code>_fail_commit()</code>으로 harness 실패 처리.</div>
+      <div class="refs"><span class="ref">execute.py:194</span><span class="ref">:474</span><span class="ref">:498</span></div>
+      <div class="resolved-tag">패치 완료 · 순서·치명성 테스트 4건 추가</div>
+    </div>
+  </div>
+
+  <div class="finding crit resolved">
+    <div class="f-head">
+      <span class="f-num">04</span>
+      <p class="f-title">검증 설정 부재·손상이 성공으로 처리됨 (fail-open)</p>
+      <span class="pill done">High · 패치</span>
+    </div>
+    <div class="f-body">
+      <p>settings 부재·JSON 손상·빈 Stop command 모두 검증 통과. <code>package.json</code> 없을 때도 성공 처리 → 잘못된 working tree에서도 phase 완료 가능.</p>
+      <div class="f-fix"><b>적용:</b> <code>_preflight_verification()</code>로 startup fail-closed + <code>_run_verification</code>이 설정 오류 시 <code>(False, ...)</code>. <code>--allow-no-verification</code> 명시적 opt-out 제공.</div>
+      <div class="refs"><span class="ref">execute.py:311</span><span class="ref">:329</span><span class="ref">:343</span></div>
+      <div class="resolved-tag">패치 완료 · fail-closed 테스트 4건 추가</div>
+    </div>
+  </div>
+
+  <!-- MEDIUM -->
+  <div class="sec-h">
+    <h2>Medium · 백엔드 통합·견고성</h2><span class="rule"></span><span class="cnt">8건</span>
+  </div>
+
+  <div class="finding warn">
+    <div class="f-head"><span class="f-num">05</span><p class="f-title">codex 미설치·미로그인·timeout이 traceback으로 종료</p><span class="pill warn">Med</span></div>
+    <div class="f-body">
+      <p><code>FileNotFoundError</code>·<code>TimeoutExpired</code>·인증 오류 분류 없음. subprocess 미생성 시 output JSON·error 상태도 안 남음.</p>
+      <div class="f-fix"><b>수정:</b> 시작 시 <code>codex --version</code>+인증 preflight, 실행 예외를 구조화된 <code>infrastructure_error</code>로 기록. timeout은 프로세스 트리 종료 + 재시도 가능/불가 구분.</div>
+      <div class="refs"><span class="ref">execute.py:254</span><span class="ref">:260</span><span class="ref">README.md:96</span></div>
+    </div>
+  </div>
+
+  <div class="finding warn">
+    <div class="f-head"><span class="f-num">06</span><p class="f-title"><code>--json</code> 미파싱으로 백엔드 결과 판정 불가</p><span class="pill warn">Med</span></div>
+    <div class="f-body">
+      <p>JSONL을 문자열로만 저장하고 성공 여부는 codex가 수정한 index에 의존. CLI 오류·tool failure·최종 응답·토큰 사용량을 구별 못 하고 재시도 시 output 덮어씀.</p>
+      <div class="f-fix"><b>수정:</b> line별 파싱해 최종 상태·오류·usage 추출, malformed event는 실패 처리. 출력은 <code>attempt-{n}.jsonl</code>로 보존, index 변경은 harness가 결과 계약대로 수행.</div>
+      <div class="refs"><span class="ref">execute.py:253</span><span class="ref">:269</span><span class="ref">:370</span></div>
+    </div>
+  </div>
+
+  <div class="finding warn">
+    <div class="f-head"><span class="f-num">07</span><p class="f-title">stateless 재시도에 잘린 문자열 피드백만 전달</p><span class="pill warn">Med</span></div>
+    <div class="f-body">
+      <p>새 세션에 검증 출력 최대 1,500자 + AI summary만 전달. 앞부분만 보존 → 실제 오류가 후반에 있으면 자가교정 반복 실패.</p>
+      <div class="f-fix"><b>수정:</b> 실패 command·exit code·stdout/stderr tail·diff 요약을 구조화 전달. codex resume/session 사용, stateless면 attempt manifest 명시 축적.</div>
+      <div class="refs"><span class="ref">execute.py:214</span><span class="ref">:386</span><span class="ref">:411</span></div>
+    </div>
+  </div>
+
+  <div class="finding warn">
+    <div class="f-head"><span class="f-num">08</span><p class="f-title">검증 프로세스에 timeout 없어 무기한 hang 가능</p><span class="pill warn">Med</span></div>
+    <div class="f-body">
+      <p>codex는 1,800초 timeout이 있으나 lint/build/test에는 없음. interactive test·hang 발생 시 복구 불가.</p>
+      <div class="f-fix"><b>수정:</b> command별 timeout + 전체 verification budget 추가. timeout 시 프로세스 트리 종료 후 명확한 오류로 재시도.</div>
+      <div class="refs"><span class="ref">execute.py:306</span><span class="ref">:308</span></div>
+    </div>
+  </div>
+
+  <div class="finding warn">
+    <div class="f-head"><span class="f-num">09</span><p class="f-title">매 retry마다 전체 lint/build/test 반복</p><span class="pill warn">Med</span></div>
+    <div class="f-body">
+      <p>최대 3회 전체 build·test 수행 → 큰 저장소에서 비용 급증.</p>
+      <div class="f-fix"><b>수정:</b> retry 중엔 변경 파일 기반 lint/관련 테스트, step 성공 직전·phase finalize에서 전체 게이트. Claude settings 재해석 대신 별도 harness verification manifest로 관리.</div>
+      <div class="refs"><span class="ref">settings.json:9</span><span class="ref">execute.py:375</span></div>
+    </div>
+  </div>
+
+  <div class="finding warn">
+    <div class="f-head"><span class="f-num">10</span><p class="f-title">동시 실행·파일 경합 보호 없음</p><span class="pill warn">Med</span></div>
+    <div class="f-body">
+      <p>동일 저장소에서 두 harness 실행 시 branch checkout·index RMW·<code>git add -A</code> 충돌. JSON in-place 쓰기라 중단 시 파일 truncate 위험.</p>
+      <div class="f-fix"><b>수정:</b> repo 단위 lock file(PID/시작시각), JSON은 임시 파일 후 atomic replace, 갱신 시 revision 확인으로 lost update 감지.</div>
+      <div class="refs"><span class="ref">execute.py:112</span><span class="ref">:122</span><span class="ref">:428</span></div>
+    </div>
+  </div>
+
+  <div class="finding warn">
+    <div class="f-head"><span class="f-num">11</span><p class="f-title">안전 훅 무효 + 네트워크 기본 허용</p><span class="pill warn">Med</span></div>
+    <div class="f-body">
+      <p>PreToolUse 차단 규칙은 codex에 효과 없음. 동시에 모든 step 네트워크 허용 + 문서는 sandbox 완전 우회까지 권고.</p>
+      <div class="f-fix"><b>수정:</b> 기본 network-off, step manifest의 capability allowlist로 install/network opt-in. destructive Git은 wrapper·invariant 검사로 통제, 위험 bypass 안내 제거.</div>
+      <div class="refs"><span class="ref">settings.json:14</span><span class="ref">execute.py:256</span><span class="ref">README.md:19</span></div>
+    </div>
+  </div>
+
+  <div class="finding warn">
+    <div class="f-head"><span class="f-num">12</span><p class="f-title">모델 라우팅·비용/난이도 제어 없음</p><span class="pill warn">Med</span></div>
+    <div class="f-body">
+      <p>모든 step·retry가 CLI 기본 모델·기본 reasoning 사용. 기본값 변경 시 재현성도 없음.</p>
+      <div class="f-fix"><b>수정:</b> phase/step index에 <code>model·reasoning_effort·timeout·max_attempts</code> 허용, CLI 기본값 명시 고정. 단순 수정과 설계·디버깅 step을 다르게 라우팅.</div>
+      <div class="refs"><span class="ref">execute.py:255</span></div>
+    </div>
+  </div>
+
+  <!-- LOW -->
+  <div class="sec-h">
+    <h2>Low · 품질·계측</h2><span class="rule"></span><span class="cnt">3건 · 1 해결</span>
+  </div>
+
+  <div class="finding good resolved">
+    <div class="f-head"><span class="f-num">13</span><p class="f-title">진행 시간(elapsed)이 항상 0초에 가깝게 출력</p><span class="pill done">Low · 패치</span></div>
+    <div class="f-body">
+      <p><code>pi.elapsed</code>는 context manager의 <code>finally</code>에서 설정되는데, <code>with</code> 블록 <em>내부</em>에서 먼저 읽음 → 항상 0. <b>교차 검증으로 확정된 실제 버그.</b></p>
+      <div class="f-fix"><b>적용:</b> <code>elapsed = int(pi.elapsed)</code>를 <code>with</code> 블록 밖으로 이동.</div>
+      <div class="refs"><span class="ref">execute.py:450</span></div>
+      <div class="resolved-tag">패치 완료 · 확정 버그 해소</div>
+    </div>
+  </div>
+
+  <div class="finding good">
+    <div class="f-head"><span class="f-num">14</span><p class="f-title">매 step 전체 문서 중복 주입</p><span class="pill good">Low</span></div>
+    <div class="f-body">
+      <p>빈 템플릿 포함 모든 <code>docs/*.md</code> + 누적 summary를 계속 전송 → 토큰 선형 증가. summary는 AI 작성 값이라 신뢰 가능한 인터페이스도 아님.</p>
+      <div class="f-fix"><b>수정:</b> 공통 규칙은 해시 캐시/짧은 immutable preamble, step별 관련 문서만 선택. 이전 산출물은 파일 목록·public interface·결정사항으로 구조화.</div>
+      <div class="refs"><span class="ref">execute.py:186</span><span class="ref">:193</span><span class="ref">:198</span></div>
+    </div>
+  </div>
+
+  <div class="finding good">
+    <div class="f-head"><span class="f-num">15</span><p class="f-title">테스트가 위험 경계를 검증하지 않음</p><span class="pill good">Low</span></div>
+    <div class="f-body">
+      <p>현재 테스트는 mock 호출 형태 중심. dirty worktree·codex timeout/미설치·malformed JSONL·verification timeout·비정상 step 순서·두 index 커밋 동기화 미검증.</p>
+      <div class="f-fix"><b>수정:</b> 임시 실제 Git 저장소 통합 테스트 + fake codex executable 추가, crash point별 재실행 불변식 검증.</div>
+      <div class="refs"><span class="ref">test_execute.py:385</span><span class="ref">:489</span><span class="ref">:606</span></div>
+    </div>
+  </div>
+
+  <!-- PRIORITY -->
+  <div class="priority">
+    <h3>남은 수정 순서 (Medium 8 · Low 2)</h3>
+    <ol style="margin:0;padding-left:20px;display:flex;flex-direction:column;gap:11px;">
+      <li><b>codex 예외·timeout 분류 (F5)</b> — 미설치·미로그인·timeout을 preflight + <code>infrastructure_error</code>로 구조화. <span class="delta">싼값·즉효, 먼저</span></li>
+      <li><b>검증 timeout + 증분 실행 (F8·F9)</b> — command별 timeout으로 hang 차단, retry는 변경파일 기반·finalize에서 전체. <span class="delta">싼값</span></li>
+      <li><b>JSONL 파싱 (F6)</b> — 이벤트를 파싱해 상태·오류·usage 추출, <code>attempt-{n}.jsonl</code> 보존. F7의 토대.</li>
+      <li><b>재시도 피드백 구조화·resume (F7)</b> — 실패 command·exit code·diff 요약 전달, codex session resume. <span class="delta">F6 의존</span></li>
+      <li><b>원자적 JSON 쓰기 + 실행 락 (F10)</b> — temp+atomic replace로 truncate 방지, repo 락으로 동시 실행 충돌 차단.</li>
+      <li><b>step manifest 확장 (F11·F12)</b> — index에 <code>model·effort·timeout·network</code> 필드, 기본 network-off + capability opt-in. <span class="delta">스키마 동시 확장</span></li>
+      <li><b>맥락 주입 최적화 (F14)</b> — 공통 규칙 캐시·step별 관련 문서만, 산출물 구조화. <span class="delta">토큰 비용</span></li>
+      <li><b>통합 테스트 (F15)</b> — 실제 git repo + fake codex, crash point별 불변식. <span class="delta">각 수정과 병행</span></li>
+    </ol>
+  </div>
+
+  <p class="foot">
+    codex exec (read-only sandbox) 정적 리뷰 · 15 findings · High 4 + Low 1 패치 완료 (71 tests green)<br>
+    점수: 6축 가중 평균 (실행·검증·안전 각 20/20/15%, 계획 15%, 구조·맥락 각 10%) · C+ 67 → B 75
+  </p>
+</div>
