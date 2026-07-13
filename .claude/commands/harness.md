@@ -19,7 +19,7 @@
 설계 원칙:
 
 1. **Scope 최소화** — 하나의 step에서 하나의 레이어 또는 모듈만 다룬다. 여러 모듈을 동시에 수정해야 하면 step을 쪼갠다.
-2. **자기완결성** — 각 step 파일은 독립된 Claude 세션에서 실행된다. "이전 대화에서 논의한 바와 같이" 같은 외부 참조는 금지한다. 필요한 정보는 전부 파일 안에 적는다.
+2. **자기완결성** — 각 step 파일은 독립된 codex 세션에서 실행된다. "이전 대화에서 논의한 바와 같이" 같은 외부 참조는 금지한다. 필요한 정보는 전부 파일 안에 적는다.
 3. **사전 준비 강제** — 관련 문서 경로와 이전 step에서 생성/수정된 파일 경로를 명시한다. 세션이 코드를 읽고 맥락을 파악한 뒤 작업하도록 유도한다.
 4. **시그니처 수준 지시** — 함수/클래스의 인터페이스만 제시하고 내부 구현은 에이전트 재량에 맡긴다. 단, 설계 의도에서 벗어나면 안 되는 핵심 규칙(멱등성, 보안, 데이터 무결성 등)은 반드시 명시한다.
 5. **AC는 실행 가능한 커맨드** — "~가 동작해야 한다" 같은 추상적 서술이 아닌 `npm run build && npm test` 같은 실제 실행 가능한 검증 커맨드를 포함한다.
@@ -71,13 +71,13 @@
 - `steps[].name`: kebab-case slug.
 - `steps[].status`: 초기값은 모두 `"pending"`.
 
-상태 전이와 자동 기록 필드:
+상태 전이와 기록 필드 (**기록은 execute.py가 전담** — codex는 `HARNESS_STATUS`로 보고만 하고 `index.json`을 직접 쓰지 않는다):
 
-| 전이 | 기록되는 필드 | 기록 주체 |
+| 전이 | 기록되는 필드 | codex 보고 → execute.py 기록 |
 |------|-------------|----------|
-| → `completed` | `completed_at`, `summary` | Claude 세션 (summary), execute.py (timestamp) |
-| → `error` | `failed_at`, `error_message` | Claude 세션 (message), execute.py (timestamp) |
-| → `blocked` | `blocked_at`, `blocked_reason` | Claude 세션 (reason), execute.py (timestamp) |
+| → `completed` | `completed_at`, `summary` | `HARNESS_STATUS: completed` + `HARNESS_SUMMARY` → execute.py가 기록·timestamp |
+| → `error` | `failed_at`, `error_message` | `HARNESS_STATUS: error` + `HARNESS_REASON` → execute.py가 기록·timestamp |
+| → `blocked` | `blocked_at`, `blocked_reason` | `HARNESS_STATUS: blocked` + `HARNESS_REASON` → execute.py가 기록·timestamp |
 
 `summary`는 step 완료 시 산출물을 한 줄로 요약한 것으로, execute.py가 다음 step 프롬프트에 컨텍스트로 누적 전달한다. 따라서 다음 step에 유용한 정보(생성된 파일, 핵심 결정 등)를 담아야 한다.
 
@@ -118,10 +118,10 @@ npm test        # 테스트 통과
    - ARCHITECTURE.md 디렉토리 구조를 따르는가?
    - ADR 기술 스택을 벗어나지 않았는가?
    - CLAUDE.md CRITICAL 규칙을 위반하지 않았는가?
-3. 결과에 따라 `phases/{task-name}/index.json`의 해당 step을 업데이트한다:
-   - 성공 → `"status": "completed"`, `"summary": "산출물 한 줄 요약"`
-   - 수정 3회 시도 후에도 실패 → `"status": "error"`, `"error_message": "구체적 에러 내용"`
-   - 사용자 개입 필요 (API 키, 외부 인증, 수동 설정 등) → `"status": "blocked"`, `"blocked_reason": "구체적 사유"` 후 즉시 중단
+3. 결과를 **응답의 맨 마지막에 딱 한 번**, 아래 형식의 블록으로만 보고한다. **`index.json` 등 `phases/**` 상태 파일은 직접 수정하지 마라** — 상태 기록은 execute.py가 전담한다(harness가 이 보고를 읽어 기록). 본문에서 이 형식을 예시로 인용하지 마라(중복되면 모호해져 거부되고 재시도된다):
+   - 성공 → `HARNESS_STATUS: completed` + `HARNESS_SUMMARY: 산출물 한 줄 요약` (summary 필수)
+   - 수정 3회 시도 후에도 실패 → `HARNESS_STATUS: error` + `HARNESS_REASON: 구체적 에러 내용` (reason 필수)
+   - 사용자 개입 필요 (API 키, 외부 인증, 수동 설정 등) → `HARNESS_STATUS: blocked` + `HARNESS_REASON: 구체적 사유` (reason 필수) 후 즉시 중단
 
 ## 금지사항
 

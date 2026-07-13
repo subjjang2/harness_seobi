@@ -7,6 +7,10 @@ tsconfig.tsbuildinfo
 # phase execution outputs
 phases/**/phase*-output.json
 phases/**/step*-output.json
+phases/**/step*-attempt-*.jsonl
+
+# repo 동시 실행 락 (F10)
+phases/.harness.lock
 
 # python
 __pycache__/
