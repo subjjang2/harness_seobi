@@ -20,3 +20,5 @@ __pycache__/
 .claude/audit.jsonl
 .claude/settings.local.json
 image.png
+reviews/
+conversation-*.txt
