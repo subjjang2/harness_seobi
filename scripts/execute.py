@@ -487,7 +487,7 @@ class StepExecutor:
             print(f"    {ph}")
         if len(placeholders) > 8:
             print(f"    ... 외 {len(placeholders) - 8}개")
-        print("  이 값이 매 step 프롬프트에 그대로 주입돼 codex 를 오도합니다. 먼저 채우세요(예: /project-init).")
+        print("  이 값이 매 step 프롬프트에 그대로 주입돼 codex 를 오도합니다. 먼저 CLAUDE.md·docs/ 의 플레이스홀더를 채우세요.")
         sys.exit(1)
 
     @staticmethod
