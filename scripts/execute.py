@@ -183,6 +183,7 @@ class StepExecutor:
             self._preflight_verification()
             self._check_blockers()
             self._preflight_clean_worktree()
+            self._ensure_baseline_commit()
             self._checkout_branch()
             guardrails = self._load_guardrails()
             self._ensure_created_at()
@@ -372,6 +373,25 @@ class StepExecutor:
                 print("  ⚠ codex 가 직접 커밋함 → soft-reset 으로 harness 커밋으로 정규화")
             else:
                 print(f"  WARN: codex 커밋 정규화 실패: {r.stderr.strip()}")
+
+    def _ensure_baseline_commit(self):
+        """저장소에 커밋이 하나도 없으면(unborn HEAD) 빈 baseline 커밋을 만들어 HEAD 를 존재하게 한다.
+
+        이 불변식이 서면 이후 git 로직이 unborn 상태를 특수 처리할 필요가 없어진다:
+        _checkout_branch 의 `rev-parse --abbrev-ref HEAD`(unborn 에선 rc≠0 이라 'git repo 아님'
+        으로 오진해 중단), _commit_step 의 `reset HEAD -- phases`, _normalize_codex_commits 의
+        pre_head 분기가 모두 정상 동작한다 — 빈 저장소 관련 엣지가 통째로 소멸한다(H2·M3).
+        (git repo 가 아니면 조용히 넘겨 _checkout_branch 가 명확한 오류를 내게 둔다.)
+        """
+        inside = self._run_git("rev-parse", "--is-inside-work-tree")
+        if inside.returncode != 0 or inside.stdout.strip() != "true":
+            return  # git repo 아님 → _checkout_branch 가 처리
+        if self._head() is not None:
+            return  # 이미 커밋이 있음 → no-op
+        r = self._run_git("commit", "--allow-empty", "-m", "chore: harness baseline (초기 커밋)")
+        if r.returncode != 0:
+            self._fail_commit("baseline 초기 커밋 생성 실패", r.stderr)
+        print("  Baseline: 빈 저장소에 초기 커밋 생성")
 
     def _checkout_branch(self):
         branch = f"feat-{self._phase_name}"

@@ -1687,14 +1687,17 @@ def _verify_cmd():
     return '"' + py + '" -B -m pytest demo -q'
 
 
-def _build_ws(tmp_path, steps):
+def _build_ws(tmp_path, steps, commit=True):
     root = tmp_path / "ws"
     (root / "phases" / "demo").mkdir(parents=True)
     (root / ".claude").mkdir()
     (root / "CLAUDE.md").write_text("# demo\n표준 라이브러리만 사용한다.\n", encoding="utf-8")
-    (root / ".gitignore").write_text(
-        "phases/**/step*-output.json\nphases/**/step*-attempt-*.jsonl\n"
-        "phases/.harness.lock\n__pycache__/\n", encoding="utf-8")
+    gi = ("phases/**/step*-output.json\nphases/**/step*-attempt-*.jsonl\n"
+          "phases/.harness.lock\n__pycache__/\n")
+    if not commit:
+        # unborn 시나리오: 설정 파일을 ignore 해 커밋 없이도 worktree 가 clean(phases 제외)이게 한다.
+        gi += ".gitignore\nCLAUDE.md\n.claude/\n"
+    (root / ".gitignore").write_text(gi, encoding="utf-8")
     (root / ".claude" / "settings.json").write_text(json.dumps(
         {"hooks": {"Stop": [{"matcher": "", "hooks": [
             {"type": "command", "command": _verify_cmd()}]}]}}), encoding="utf-8")
@@ -1709,8 +1712,9 @@ def _build_ws(tmp_path, steps):
     _git_ws(root, "init", "-q")
     _git_ws(root, "config", "user.email", "t@example.com")
     _git_ws(root, "config", "user.name", "tester")
-    _git_ws(root, "add", "-A")
-    _git_ws(root, "commit", "-q", "-m", "init")
+    if commit:
+        _git_ws(root, "add", "-A")
+        _git_ws(root, "commit", "-q", "-m", "init")
     return root
 
 
@@ -1768,6 +1772,10 @@ class TestEndToEndFakeCodex:
         branch = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=str(root),
                                 capture_output=True, text=True).stdout.strip()
         assert branch == "feat-demo"
+        # HEAD 가 이미 있는 repo 에선 baseline 을 만들지 않는다(no-op).
+        log = subprocess.run(["git", "log", "--oneline"], cwd=str(root),
+                             capture_output=True, text=True, encoding="utf-8").stdout
+        assert "harness baseline" not in log
         # 커밋 경계: feat 는 코드만(demo/), chore 는 상태만(phases/).
         feat_files = _commit_files(root, "feat(demo): step 0")
         assert feat_files and all(f.startswith("demo/") for f in feat_files)
@@ -1793,3 +1801,27 @@ class TestEndToEndFakeCodex:
         # 검증 게이트가 1회차를 걸러 최소 2회 exec(재시도) 됐다.
         assert int(Path(str(plan_path) + ".ctr").read_text().strip()) == 2
         assert (root / "demo" / "mathx.py").read_text(encoding="utf-8") == _GOOD_MATHX
+
+    def test_unborn_repo_gets_baseline_and_completes(self, tmp_path):
+        # 커밋이 하나도 없는(unborn) 저장소에서도 harness 가 baseline 커밋을 만들어
+        # 완주하는지 — 빈 저장소 엣지(H2·M3) 소멸을 end-to-end 로 잠근다.
+        root = _build_ws(tmp_path, [{"step": 0, "name": "add", "status": "pending"}],
+                         commit=False)
+        assert subprocess.run(["git", "rev-parse", "HEAD"], cwd=str(root),
+                              capture_output=True).returncode != 0  # unborn 확인
+        fake, plan_path = self._setup(tmp_path, [
+            {"files": {"demo/mathx.py": _GOOD_MATHX, "demo/test_mathx.py": _TEST_MATHX},
+             "status": "completed", "summary": "add"},
+        ])
+        _run_harness(root, fake, plan_path)
+
+        # baseline 이 생겨 HEAD 가 존재하고 phase 가 완주함.
+        assert subprocess.run(["git", "rev-parse", "HEAD"], cwd=str(root),
+                              capture_output=True).returncode == 0
+        phase_idx = json.loads((root / "phases" / "demo" / "index.json").read_text(encoding="utf-8"))
+        assert phase_idx["steps"][0]["status"] == "completed"
+        # baseline 커밋 위에 feat 가 쌓였다.
+        log = subprocess.run(["git", "log", "--oneline"], cwd=str(root),
+                             capture_output=True, text=True, encoding="utf-8").stdout
+        assert "harness baseline" in log
+        assert "feat(demo): step 0" in log
