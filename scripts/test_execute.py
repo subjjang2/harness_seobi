@@ -586,6 +586,47 @@ class TestStateFileRestore:
 # _invoke_codex (mocked)
 # ---------------------------------------------------------------------------
 
+class TestCodexBase:
+    """codex 실행 접두(_codex_base) — Windows `.CMD` 셈 실행 회귀 잠금.
+
+    npm 으로 설치한 codex 는 Windows 에서 `codex.CMD` 라, subprocess 를 shell=False 로
+    `["codex", ...]` 직접 실행하면 CreateProcess 가 `.CMD` 를 해석하지 못해 WinError 2 가
+    난다(실 실행 스모크 테스트에서 발견). `cmd /c codex` 로 감싸는 동작을 플랫폼별로 고정하고,
+    _preflight_codex·_invoke_codex 가 실제로 이 접두를 사용하는지(배선)까지 잠근다.
+    이 테스트가 없으면 codex 호출이 전부 mock 이라 실행 불가 회귀가 green 으로 숨는다.
+    """
+
+    def test_windows_wraps_with_cmd_c(self):
+        with patch.object(ex.os, "name", "nt"):
+            assert ex.StepExecutor._codex_base() == ["cmd", "/c", "codex"]
+
+    def test_posix_uses_bare_codex(self):
+        with patch.object(ex.os, "name", "posix"):
+            assert ex.StepExecutor._codex_base() == ["codex"]
+
+    def test_invoke_codex_routes_through_codex_base(self, executor):
+        # _invoke_codex 가 하드코딩 ["codex",...] 가 아니라 _codex_base() 접두를 쓰는지.
+        step = {"step": 2, "name": "ui"}
+        with patch.object(executor, "_codex_base", return_value=["BASE"]), \
+             patch.object(executor, "_run_tree",
+                          return_value=MagicMock(returncode=0, stdout="{}", stderr="")) as m:
+            executor._invoke_codex(step, "preamble")
+        cmd = m.call_args[0][0]
+        assert cmd[0] == "BASE"
+        assert cmd[1] == "exec"
+
+    def test_preflight_codex_routes_through_codex_base(self, executor):
+        # _preflight_codex 의 `codex --version` 도 _codex_base() 접두를 쓰는지.
+        with patch.object(ex.shutil, "which", return_value="C:/npm/codex.CMD"), \
+             patch.object(executor, "_codex_base", return_value=["BASE"]), \
+             patch.object(ex.subprocess, "run",
+                          return_value=MagicMock(returncode=0, stdout="codex 1.0", stderr="")) as m:
+            executor._preflight_codex()
+        argv = m.call_args[0][0]
+        assert argv[0] == "BASE"
+        assert "--version" in argv
+
+
 class TestInvokeCodex:
     def test_invokes_codex_with_correct_args(self, executor):
         mock_result = MagicMock(returncode=0, stdout='{"result": "ok"}', stderr="")
@@ -596,8 +637,9 @@ class TestInvokeCodex:
             output = executor._invoke_codex(step, preamble)
 
         cmd = mock_run.call_args[0][0]
-        assert cmd[0] == "codex"
-        assert cmd[1] == "exec"
+        base = ex.StepExecutor._codex_base()
+        assert cmd[:len(base)] == base            # 플랫폼별 codex 접두(Windows: cmd /c codex)
+        assert cmd[len(base)] == "exec"
         assert "workspace-write" in cmd  # 샌드박스로 워크스페이스 밖 쓰기 차단
         assert "sandbox_workspace_write.network_access=true" in cmd  # 네트워크는 허용
         assert cmd[-1] == "-"  # 프롬프트는 stdin으로 전달
@@ -1208,7 +1250,9 @@ class TestInvokeCodexParsingAndResume:
                           return_value=MagicMock(returncode=0, stdout="", stderr="")) as m:
             executor._invoke_codex(step, "PREAMBLE\n")
         cmd = m.call_args[0][0]
-        assert cmd[:2] == ["codex", "exec"]
+        base = ex.StepExecutor._codex_base()
+        assert cmd[:len(base)] == base
+        assert cmd[len(base)] == "exec"
         assert "resume" not in cmd
         stdin = m.call_args[1]["input"]
         assert "PREAMBLE" in stdin
@@ -1220,7 +1264,9 @@ class TestInvokeCodexParsingAndResume:
                           return_value=MagicMock(returncode=0, stdout="", stderr="")) as m:
             executor._invoke_codex(step, "FEEDBACK", attempt=2, resume_thread_id="sess-9")
         cmd = m.call_args[0][0]
-        assert cmd[:3] == ["codex", "exec", "resume"]
+        base = ex.StepExecutor._codex_base()
+        assert cmd[:len(base)] == base
+        assert cmd[len(base):len(base) + 2] == ["exec", "resume"]
         assert "sess-9" in cmd
         # resume 은 -s/--sandbox 를 못 받으므로 샌드박스는 -c sandbox_mode 로 지정한다.
         assert "-s" not in cmd

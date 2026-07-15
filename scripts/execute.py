@@ -537,6 +537,20 @@ class StepExecutor:
 
     # --- codex 호출 ---
 
+    @staticmethod
+    def _codex_base():
+        """codex 실행 명령 접두를 반환한다.
+
+        Windows 에서 npm 으로 설치한 codex 는 `codex.CMD`(배치 셈)라, subprocess 를
+        shell=False 로 `["codex", ...]` 직접 실행하면 CreateProcess 가 `.CMD` 를 해석하지
+        못해 FileNotFoundError(WinError 2)가 난다(`shutil.which` 는 PATHEXT 로 찾지만
+        CreateProcess 는 `.exe` 만 자동 부착). `cmd /c codex` 로 감싸 cmd.exe 가 PATHEXT 로
+        `.CMD` 를 해석하게 한다. POSIX 에서는 그대로 `codex`.
+        """
+        if os.name == "nt":
+            return ["cmd", "/c", "codex"]
+        return ["codex"]
+
     def _preflight_codex(self):
         """codex CLI 가 설치·실행 가능한지 시작 시 확인한다 (fail-fast).
 
@@ -550,7 +564,7 @@ class StepExecutor:
             sys.exit(1)
         try:
             r = subprocess.run(
-                ["codex", "--version"], cwd=self._root,
+                self._codex_base() + ["--version"], cwd=self._root,
                 capture_output=True, text=True, timeout=30,
                 encoding="utf-8", errors="replace",
             )
@@ -659,13 +673,13 @@ class StepExecutor:
             # 재시도(F7): 같은 세션을 resume 해 codex 가 이전 맥락(가드레일·step·앞선 시도)을 유지하게 한다.
             # stateless 새 세션 + 잘린 문자열 피드백 대신, 구조화된 실패 피드백만 이어서 보낸다.
             # resume 서브커맨드는 -s/--sandbox 를 받지 않으므로 샌드박스를 -c sandbox_mode 로 지정한다.
-            cmd = ["codex", "exec", "resume", resume_thread_id,
+            cmd = self._codex_base() + ["exec", "resume", resume_thread_id,
                    "-c", "sandbox_mode=workspace-write",
                    "-c", "sandbox_workspace_write.network_access=true",
                    "--json", "-"]
             prompt = preamble  # resume 프롬프트(가드레일·step 재주입 없음 — 이미 세션 맥락에 있음)
         else:
-            cmd = ["codex", "exec",
+            cmd = self._codex_base() + ["exec",
                    "-s", "workspace-write",
                    "-c", "sandbox_workspace_write.network_access=true",
                    "--json", "-"]
