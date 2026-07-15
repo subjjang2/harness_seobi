@@ -1595,3 +1595,201 @@ class TestRunTree:
             # 예외 전파 전에 트리 종료가 호출됐고, 이후 파이프 드레인까지 수행됐다.
             spy.assert_called_once_with(proc)
         assert proc.communicate.call_count == 2
+
+
+# ---------------------------------------------------------------------------
+# 통합 테스트: 가짜 codex 실행파일 + 실제 git repo 로 run() 전체 경로 검증
+# ---------------------------------------------------------------------------
+# codex 호출을 mock 하지 않고 real subprocess(_run_tree)로 태워, 단위 테스트가 전부 mock 이라
+# 놓쳤던 경로(preflight·브랜치 checkout·JSONL 파싱·verdict·검증 게이트·feat/chore 커밋·
+# finalize·상태 기록)를 실제로 검증한다. 이 계열 테스트 부재로 Windows codex 실행 버그가
+# green 을 뚫고 나갔다 — '실행해야만 보이는' 회귀를 잡는 안전망.
+
+_FAKE_CODEX = r'''
+import json, os, sys
+
+
+def main():
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")  # 실제 codex 처럼 utf-8 로 출력(하네스가 utf-8 디코드)
+    except Exception:
+        pass
+    argv = sys.argv[1:]
+    if "--version" in argv:
+        print("fake-codex 0.0.0")
+        return 0
+    try:
+        sys.stdin.read()
+    except Exception:
+        pass
+    plan_path = os.environ["FAKE_CODEX_PLAN"]
+    with open(plan_path, encoding="utf-8") as f:
+        plan = json.load(f)
+    ctr_path = plan_path + ".ctr"
+    idx = 0
+    if os.path.exists(ctr_path):
+        with open(ctr_path) as cf:          # 읽기 핸들을 반드시 닫는다(Windows 쓰기 sharing-violation 회피)
+            idx = int((cf.read().strip() or "0"))
+    action = plan[min(idx, len(plan) - 1)]
+    with open(ctr_path, "w") as f:
+        f.write(str(idx + 1))
+    for rel, content in action.get("files", {}).items():
+        p = os.path.join(os.getcwd(), rel)
+        d = os.path.dirname(p)
+        if d and not os.path.isdir(d):
+            os.makedirs(d)
+        with open(p, "w", encoding="utf-8") as fh:
+            fh.write(content)
+    status = action["status"]
+    lines = ["작업 수행함.", "", "HARNESS_STATUS: " + status]
+    if status == "completed":
+        lines.append("HARNESS_SUMMARY: " + action.get("summary", "done"))
+    else:
+        lines.append("HARNESS_REASON: " + action.get("reason", "reason"))
+    msg = chr(10).join(lines)
+    print(json.dumps({"type": "thread.started", "thread_id": "fake-thread-1"}, ensure_ascii=False))
+    print(json.dumps({"type": "item.completed",
+                      "item": {"type": "agent_message", "text": msg}}, ensure_ascii=False))
+    print(json.dumps({"type": "turn.completed", "usage": {"output_tokens": 1}}, ensure_ascii=False))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
+'''
+
+_GOOD_MATHX = '''def add(a, b):
+    return a + b
+'''
+
+_BAD_MATHX = '''def add(a, b):
+    return 0  # 의도적 버그: add(2, 3) != 5 라 게이트가 걸러낸다
+'''
+
+_TEST_MATHX = '''from mathx import add
+
+
+def test_add():
+    assert add(2, 3) == 5
+'''
+
+
+def _git_ws(root, *args):
+    subprocess.run(["git", *args], cwd=str(root), check=True,
+                   capture_output=True, text=True)
+
+
+def _verify_cmd():
+    # 검증 게이트를 실제 pytest 로 실행한다(현재 인터프리터 경로 — bash -c 로 실행됨).
+    # -B: .pyc 미기록 → 매 attempt 소스에서 재컴파일. 가짜 codex 가 같은 크기 파일을 1초 내
+    # 재작성할 때 stale bytecode 를 재사용하는 플레이크를 차단한다(실제 codex 는 느려서 안 터짐).
+    py = Path(sys.executable).as_posix()
+    return '"' + py + '" -B -m pytest demo -q'
+
+
+def _build_ws(tmp_path, steps):
+    root = tmp_path / "ws"
+    (root / "phases" / "demo").mkdir(parents=True)
+    (root / ".claude").mkdir()
+    (root / "CLAUDE.md").write_text("# demo\n표준 라이브러리만 사용한다.\n", encoding="utf-8")
+    (root / ".gitignore").write_text(
+        "phases/**/step*-output.json\nphases/**/step*-attempt-*.jsonl\n"
+        "phases/.harness.lock\n__pycache__/\n", encoding="utf-8")
+    (root / ".claude" / "settings.json").write_text(json.dumps(
+        {"hooks": {"Stop": [{"matcher": "", "hooks": [
+            {"type": "command", "command": _verify_cmd()}]}]}}), encoding="utf-8")
+    (root / "phases" / "index.json").write_text(
+        json.dumps({"phases": [{"dir": "demo", "status": "pending"}]}), encoding="utf-8")
+    (root / "phases" / "demo" / "index.json").write_text(
+        json.dumps({"project": "demo", "phase": "demo", "steps": steps}, ensure_ascii=False),
+        encoding="utf-8")
+    for s in steps:
+        (root / "phases" / "demo" / ("step" + str(s["step"]) + ".md")).write_text(
+            "# Step " + str(s["step"]) + "\n작업 후 HARNESS_STATUS 로 보고하라.\n", encoding="utf-8")
+    _git_ws(root, "init", "-q")
+    _git_ws(root, "config", "user.email", "t@example.com")
+    _git_ws(root, "config", "user.name", "tester")
+    _git_ws(root, "add", "-A")
+    _git_ws(root, "commit", "-q", "-m", "init")
+    return root
+
+
+def _run_harness(root, fake_path, plan_path):
+    real_which = ex.shutil.which
+
+    def fake_which(name):
+        return "codex" if name == "codex" else real_which(name)
+
+    with patch.object(ex, "ROOT", root), \
+         patch.dict(os.environ, {"FAKE_CODEX_PLAN": str(plan_path)}), \
+         patch.object(ex.shutil, "which", side_effect=fake_which):
+        executor = ex.StepExecutor("demo")
+        executor._codex_base = lambda: [sys.executable, str(fake_path)]
+        executor.run()
+
+
+def _commit_files(root, msg):
+    sha = subprocess.run(["git", "log", "--grep", msg, "--format=%H", "-1"],
+                         cwd=str(root), capture_output=True, text=True).stdout.strip()
+    if not sha:
+        return []
+    out = subprocess.run(["git", "show", "--name-only", "--format=", sha],
+                         cwd=str(root), capture_output=True, text=True).stdout
+    return [ln.strip() for ln in out.splitlines() if ln.strip()]
+
+
+class TestEndToEndFakeCodex:
+    """가짜 codex 실행파일 + 실제 git repo 로 run() 전체를 태우는 통합 테스트."""
+
+    def _setup(self, tmp_path, plan):
+        fake = tmp_path / "fake_codex.py"
+        fake.write_text(_FAKE_CODEX, encoding="utf-8")
+        plan_path = tmp_path / "plan.json"
+        plan_path.write_text(json.dumps(plan, ensure_ascii=False), encoding="utf-8")
+        return fake, plan_path
+
+    def test_happy_path_full_run(self, tmp_path):
+        root = _build_ws(tmp_path, [{"step": 0, "name": "add", "status": "pending"}])
+        fake, plan_path = self._setup(tmp_path, [
+            {"files": {"demo/mathx.py": _GOOD_MATHX, "demo/test_mathx.py": _TEST_MATHX},
+             "status": "completed", "summary": "add 구현"},
+        ])
+        _run_harness(root, fake, plan_path)
+
+        # 상태 소유권(F10c): harness 가 index 에 completed 를 기록한다.
+        phase_idx = json.loads((root / "phases" / "demo" / "index.json").read_text(encoding="utf-8"))
+        assert phase_idx["steps"][0]["status"] == "completed"
+        assert phase_idx["steps"][0]["summary"] == "add 구현"
+        top_idx = json.loads((root / "phases" / "index.json").read_text(encoding="utf-8"))
+        assert top_idx["phases"][0]["status"] == "completed"
+        # codex 산출물이 워크스페이스에 실제로 기록됨.
+        assert (root / "demo" / "mathx.py").read_text(encoding="utf-8") == _GOOD_MATHX
+        # feat-demo 브랜치에서 실행됨.
+        branch = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=str(root),
+                                capture_output=True, text=True).stdout.strip()
+        assert branch == "feat-demo"
+        # 커밋 경계: feat 는 코드만(demo/), chore 는 상태만(phases/).
+        feat_files = _commit_files(root, "feat(demo): step 0")
+        assert feat_files and all(f.startswith("demo/") for f in feat_files)
+        chore_files = _commit_files(root, "chore(demo): step 0 output")
+        assert chore_files and all(f.startswith("phases/") for f in chore_files)
+        # codex 는 정확히 1회 exec 됨(재시도 없음).
+        assert Path(str(plan_path) + ".ctr").read_text().strip() == "1"
+
+    def test_verification_failure_triggers_retry_then_succeeds(self, tmp_path):
+        root = _build_ws(tmp_path, [{"step": 0, "name": "add", "status": "pending"}])
+        # 1회차: 틀린 구현 → pytest 게이트 실패 → 재시도. 2회차: 올바른 구현 → 통과.
+        fake, plan_path = self._setup(tmp_path, [
+            {"files": {"demo/mathx.py": _BAD_MATHX, "demo/test_mathx.py": _TEST_MATHX},
+             "status": "completed", "summary": "1회차(버그)"},
+            {"files": {"demo/mathx.py": _GOOD_MATHX},
+             "status": "completed", "summary": "2회차(수정)"},
+        ])
+        _run_harness(root, fake, plan_path)
+
+        phase_idx = json.loads((root / "phases" / "demo" / "index.json").read_text(encoding="utf-8"))
+        assert phase_idx["steps"][0]["status"] == "completed"
+        assert phase_idx["steps"][0]["summary"] == "2회차(수정)"
+        # 검증 게이트가 1회차를 걸러 최소 2회 exec(재시도) 됐다.
+        assert int(Path(str(plan_path) + ".ctr").read_text().strip()) == 2
+        assert (root / "demo" / "mathx.py").read_text(encoding="utf-8") == _GOOD_MATHX
